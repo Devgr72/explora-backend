@@ -9,7 +9,7 @@ const Razorpay = require('razorpay');
 const app=express()
 app.use(cors())
 app.use(express.json())
-const {signup,login,forget} =require('../databse')
+const {signup,login,forget} =require('./databse')
 const path = require('path');
 
 const SECRET_KEY = '72';
