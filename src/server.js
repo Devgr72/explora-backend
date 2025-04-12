@@ -8,6 +8,7 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const router = express.Router();
 
+let lastPurchase = null;
 
 const app=express()
 app.use(cors({
@@ -32,92 +33,44 @@ const transporter=nodemailer.createTransport(
 
   }
 )
-app.post('/api/send-confirmation-email', async (req, res) => {
+app.post('/send-order-confirmation', async (req, res) => {
   try {
-    const { email, orderId, paymentId, cartItems, totalAmount } = req.body;
-    console.log('Received email request for:', email);
+    const { orderId, paymentId, cartItems, totalAmount } = req.body;
 
     // Format order items for email
     const itemsList = cartItems.map(item => 
-      `<tr>
-        <td>${item.name} (x${item.quantity})</td>
-        <td>₹${item.price * item.quantity}</td>
-      </tr>`
-    ).join('');
+      `${item.name} (x${item.quantity}) - ₹${item.price * item.quantity}`
+    ).join('<br>');
 
     const mailOptions = {
-      from: 'Explora <devgrover72@gmail.com>',
-      to: email,
-      subject: `Order Confirmation - #${orderId}`,
+      from: 'devgrover72@gmail.com',
+      to: 'devgr102@gmail.com', // Always send to this address
+      subject: `New Order #${orderId}`,
       html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-            .content { padding: 20px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 5px 5px; }
-            .details { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 15px 0; }
-            .footer { margin-top: 20px; font-size: 12px; color: #777; text-align: center; }
-            table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-            th { text-align: left; padding: 8px; background-color: #f2f2f2; }
-            td { padding: 8px; border-bottom: 1px solid #ddd; }
-            .total-row { font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>Order Confirmed!</h1>
-          </div>
-          
-          <div class="content">
-            <p>Thank you for shopping with us. Your order has been confirmed!</p>
-            
-            <div class="details">
-              <h2>Order Summary</h2>
-              <p><strong>Order ID:</strong> ${orderId}</p>
-              <p><strong>Payment ID:</strong> ${paymentId}</p>
-              
-              <h3>Items Ordered:</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${itemsList}
-                  <tr class="total-row">
-                    <td>Total Paid:</td>
-                    <td>₹${totalAmount}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            
-            <p>We'll notify you when your items ship. If you have any questions, please contact our support team.</p>
-          </div>
-          
-          <div class="footer">
-            <p>© ${new Date().getFullYear()} Explora. All rights reserved.</p>
-          </div>
-        </body>
-        </html>
+        <h1>New Order Received!</h1>
+        <p>You have received a new order with the following details:</p>
+        
+        <h2>Order Information</h2>
+        <p><strong>Order ID:</strong> ${orderId}</p>
+        <p><strong>Payment ID:</strong> ${paymentId}</p>
+        
+        <h3>Items Ordered:</h3>
+        ${itemsList}
+        
+        <h3>Total Amount: ₹${totalAmount}</h3>
+        
+        <p>Order received at: ${new Date().toLocaleString()}</p>
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
-    res.json({ 
-      success: true,
-      message: 'Confirmation email sent successfully'
-    });
+    await transporter.sendMail(mailOptions);
+    console.log('Order confirmation email sent to devgr102@gmail.com');
+    res.status(200).json({ success: true, message: 'Order details emailed successfully' });
   } catch (error) {
     console.error('Email sending error:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to send email',
+      error: 'Failed to send order details',
       details: error.message 
     });
   }
@@ -126,6 +79,47 @@ const razorpay = new Razorpay({
     key_id: 'rzp_test_Syu8Zea6zXm8yN',
     key_secret: 'X2gjximlzuwl2JDPKI7Wgd2O'
 });
+
+app.post('/api/confirm-purchase', async (req, res) => {
+  try {
+    const { items, total, paymentMethod } = req.body;
+    
+    const purchase = {
+      _id: Date.now().toString(),
+      items: items.map(item => ({
+        medicine_id: item.id,
+        name: item.name,
+        image: item.image,
+        quantity: item.quantity,
+        price: item.price
+      })),
+      total_payment: total,
+      payment_method: paymentMethod,
+      purchase_date: new Date()
+    };
+    
+    lastPurchase = purchase; // Store in memory
+    
+    res.json({
+      success: true,
+      purchase: purchase
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Failed to process purchase"
+    });
+  }
+});
+
+router.post('/last-purchase', (req, res) => {
+  console.log('lastPurchase:', lastPurchase);
+  if (!lastPurchase) {
+    return res.status(404).json({ error: "No recent purchases found" });
+  }
+  res.json(lastPurchase);
+});
+
 app.post('/create-order', async (req, res) => {
   const { amount } = req.body;
 
@@ -165,7 +159,7 @@ app.post('/verify-payment', async (req, res) => {
         date: new Date()
       };
       
-      // Here you would typically save to database
+     
       console.log('Payment verified and order saved:', orderData);
       
       res.status(200).json({ 
@@ -188,6 +182,48 @@ app.post('/verify-payment', async (req, res) => {
     });
   }
 });
+app.get('/admin/logged-users', async (req, res) => {
+  try {
+    const dbInstance = await getDb();
+    const collection = dbInstance.collection('users');
+    
+    
+    const users = await collection.find({ loggedInAt: { $exists: true } }).toArray();
+    
+    res.status(200).json(users);
+  } catch (err) {
+    console.error('Error fetching logged users:', err);
+    res.status(500).json({ error: 'Failed to fetch logged-in users' });
+  }
+});
+
+
+app.get('/admin/user-activities', async (req, res) => {
+  try {
+    const dbInstance = await getDb();
+    const collection = dbInstance.collection('activities');
+    const data = await collection.aggregate([
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $unwind: '$user'
+      }
+    ]).toArray();
+
+    res.status(200).json(data);
+  } catch (err) {
+    console.error('Error fetching activities:', err);
+    res.status(500).json({ error: 'Failed to fetch activities' });
+  }
+});
+
+
 let userBookings = [];
 const cityServices = [
     {
@@ -237,6 +273,31 @@ app.post('/api/contact', async (req, res) => {
     res.status(500).json({ error: 'Failed to send message' });
   }
 });
+
+app.post('/send-status-email', async (req, res) => {
+  const { userName, medicineName, decision } = req.body;
+
+  const statusMessage = decision === 'approved'
+    ? `Hello ${userName}, your order for ${medicineName} is confirmed and will be delivered within 2 days.`
+    : `Hello ${userName}, your order for ${medicineName} has been denied by the admin.`;
+
+  const mailOptions = {
+    from: 'devgrover72@gmail.com',
+    to: 'devgr102@gmail.com',
+    subject: `Order Status for ${medicineName}`,
+    text: statusMessage
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`Status email sent for ${medicineName} (${decision})`);
+    res.status(200).json({ success: true, message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Error sending status email:', error);
+    res.status(500).json({ success: false, error: 'Failed to send email' });
+  }
+});
+
 function sendmail(to,sub,msg){
     transporter.sendMail(
         {

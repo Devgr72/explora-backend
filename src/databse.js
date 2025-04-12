@@ -16,6 +16,10 @@ const signup = async (obj) => {
 const login=async(obj)=>{
     const collection=(await db).collection('users')
     const user = await collection.findOne({email:obj.email});
+    await collection.updateOne(
+      { email: obj.email },
+      { $set: { loggedInAt: new Date() } }
+    );
     console.log(user)
     if (user) {
       if (user.pass === obj.pass) {
